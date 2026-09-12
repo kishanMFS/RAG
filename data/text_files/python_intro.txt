@@ -1,0 +1,17 @@
+ Python programming introduction
+    Python is a high-level, general-purpose programming language that is widely celebrated for its clean, 
+    English-like syntax and emphasis on code readability. 
+
+    Created by Guido van Rossum and first released in 1991, 
+    Python has evolved into one of the most dominant and heavily utilized languages globally. 
+    It operates as an interpreted, dynamically-typed language managed under a non-profit 
+    organization called the Python Software Foundation (PSF). 
+
+    [1] (https://www.w3schools.com/python/python_intro.asp), 
+    [2] (https://pythoninstitute.org/about-python), 
+    [3] (https://www.coursera.org/in/articles/what-is-python-used-for-a-beginners-guide-to-using-python), 
+    [4] (https://www.youtube.com/watch?v=mlTd1EPITBo&t=297), 
+    [5] (https://en.wikipedia.org/wiki/Python_(programming_language)), 
+    [6] (https://docs.python.org/3/faq/general.html)
+
+      

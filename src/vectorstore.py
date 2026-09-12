@@ -1,0 +1,104 @@
+import os
+import faiss
+import numpy as np
+import pickle
+from typing import List, Any
+from sentence_transformers import SentenceTransformer
+# from langchain_openai import OpenAIEmbeddings
+from src.embedding import EmbeddingPipeline
+import torch
+
+class FaissVectorStore:
+    def __init__(self, persist_dir: str = "faiss_store", embedding_model: str = "all-MiniLM-L6-v2", chunk_size: int = 1000, chunk_overlap: int = 200):
+        self.persist_dir = persist_dir
+        os.makedirs(self.persist_dir, exist_ok=True)
+        self.index = None
+        self.metadata = []
+
+        # 2. Verify that your system detects the Intel GPU
+        if torch.xpu.is_available():
+            target_device = "xpu"
+            # Intel GPUs are identified via standard device properties
+            gpu_name = torch.xpu.get_device_name(0) if hasattr(torch.xpu, 'get_device_name') else "Intel Iris Xe"
+            print(f"🚀 Success! Targeting Intel GPU: {gpu_name}")
+            
+            # CRITICAL: Use float32 or bfloat16 because Iris Xe lacks native float16 hardware support
+            model_dtype = torch.bfloat16 
+        else:
+            target_device = "cpu"
+            print("⚠️ Intel GPU not detected or IPEX not loaded. Falling back to CPU/RAM.")
+            model_dtype = torch.float32
+
+        embedding_model = "Qwen/Qwen3-Embedding-0.6B"
+        self.embedding_model = embedding_model
+
+        open_api_key = os.getenv("OPENAI_API_KEY")
+
+        self.model = SentenceTransformer(embedding_model,
+                                        device=target_device,
+                                        model_kwargs={"torch_dtype": model_dtype})
+        # 2. Initialize the model with text-embedding-3-small
+        # self.model = OpenAIEmbeddings(model=embedding_model, api_key=open_api_key)
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        print(f"[INFO] Loaded embedding model: {embedding_model}")
+
+    def build_from_documents(self, documents: List[Any]):
+        print(f"[INFO] Building vector store from {len(documents)} raw documents...")
+        emb_pipe = EmbeddingPipeline(model_name=self.embedding_model, chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap)
+        chunks = emb_pipe.chunk_documents(documents)
+        embeddings = emb_pipe.embed_chunks(chunks)
+        metadatas = [{"text": chunk.page_content} for chunk in chunks]
+        self.add_embeddings(np.array(embeddings).astype('float32'), metadatas)
+        self.save()
+        print(f"[INFO] Vector store built and saved to {self.persist_dir}")
+
+    def add_embeddings(self, embeddings: np.ndarray, metadatas: List[Any] = None):
+        dim = embeddings.shape[1]
+        if self.index is None:
+            self.index = faiss.IndexFlatL2(dim)
+        self.index.add(embeddings)
+        if metadatas:
+            self.metadata.extend(metadatas)
+        print(f"[INFO] Added {embeddings.shape[0]} vectors to Faiss index.")
+
+    def save(self):
+        os.makedirs(self.persist_dir, exist_ok=True)
+        faiss_path = os.path.join(self.persist_dir, "faiss.index")
+        meta_path = os.path.join(self.persist_dir, "metadata.pkl")
+        faiss.write_index(self.index, faiss_path)
+        with open(meta_path, "wb") as f:
+            pickle.dump(self.metadata, f)
+        print(f"[INFO] Saved Faiss index and metadata to {self.persist_dir}")
+
+    def load(self):
+        os.makedirs(self.persist_dir, exist_ok=True)
+        faiss_path = os.path.join(self.persist_dir, "faiss.index")
+        meta_path = os.path.join(self.persist_dir, "metadata.pkl")
+        self.index = faiss.read_index(faiss_path)
+        with open(meta_path, "rb") as f:
+            self.metadata = pickle.load(f)
+        print(f"[INFO] Loaded Faiss index and metadata from {self.persist_dir}")
+
+    def search(self, query_embedding: np.ndarray, top_k: int = 5):
+        D, I = self.index.search(query_embedding, top_k)
+        results = []
+        for idx, dist in zip(I[0], D[0]):
+            meta = self.metadata[idx] if idx < len(self.metadata) else None
+            results.append({"index": idx, "distance": dist, "metadata": meta})
+        return results
+
+    def query(self, query_text: str, top_k: int = 5):
+        print(f"[INFO] Querying vector store for: '{query_text}'")
+        query_emb = self.model.encode([query_text]).astype('float32')
+        # query_emb = np.array(self.model.embed_query(query_text), dtype='float32')
+        return self.search(query_emb, top_k=top_k)
+
+# Example usage
+if __name__ == "__main__":
+    from data_loader import load_all_documents
+    docs = load_all_documents("data")
+    store = FaissVectorStore("faiss_store")
+    store.build_from_documents(docs)
+    store.load()
+    print(store.query("What is attention mechanism?", top_k=3))
