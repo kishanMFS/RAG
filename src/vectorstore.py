@@ -16,17 +16,23 @@ class FaissVectorStore:
         self.metadata = []
 
         # 2. Verify that your system detects the Intel GPU
-        if torch.xpu.is_available():
-            target_device = "xpu"
-            # Intel GPUs are identified via standard device properties
-            gpu_name = torch.xpu.get_device_name(0) if hasattr(torch.xpu, 'get_device_name') else "Intel Iris Xe"
-            print(f"🚀 Success! Targeting Intel GPU: {gpu_name}")
+        if torch.cuda.is_available():
+            target_device = "cuda"
+            # NVIDIA GPUs are identified via standard CUDA properties
+            gpu_name = torch.cuda.get_device_name(0)
+            print(f"🚀 Success! Targeting NVIDIA GPU: {gpu_name}")
             
-            # CRITICAL: Use float32 or bfloat16 because Iris Xe lacks native float16 hardware support
-            model_dtype = torch.bfloat16 
+            # Modern NVIDIA cards (RTX 30-series/Ampere or newer) support bfloat16, 
+            # while older cards (GTX 10-series/Pascal or Turing) run best on float16.
+            if torch.cuda.is_bf16_supported():
+                model_dtype = torch.bfloat16
+                print("💡 Using bfloat16 precision.")
+            else:
+                model_dtype = torch.float16
+                print("💡 Using float16 precision.")
         else:
             target_device = "cpu"
-            print("⚠️ Intel GPU not detected or IPEX not loaded. Falling back to CPU/RAM.")
+            print("⚠️ NVIDIA GPU not detected. Falling back to CPU/RAM.")
             model_dtype = torch.float32
 
         embedding_model = "Qwen/Qwen3-Embedding-0.6B"
